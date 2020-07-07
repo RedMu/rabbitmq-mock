@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import com.github.fridujo.rabbitmq.mock.Overflow;
 import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 
@@ -53,7 +54,7 @@ public class QueueDeclarator {
         return this;
     }
 
-    public QueueDeclarator withOverflow(AmqArguments.Overflow overflow) {
+    public QueueDeclarator withOverflow(Overflow overflow) {
         queueArgs.put(AmqArguments.OVERFLOW_KEY, overflow.toString());
         return this;
     }

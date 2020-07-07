@@ -14,6 +14,7 @@ import java.util.function.Predicate;
 
 import static com.github.fridujo.rabbitmq.mock.MockPolicy.ApplyTo.ALL;
 import static com.github.fridujo.rabbitmq.mock.tool.ParameterMarshaller.getParameterAsExchangePointer;
+import static com.github.fridujo.rabbitmq.mock.tool.ParameterMarshaller.getParameterAsPositiveInteger;
 import static com.github.fridujo.rabbitmq.mock.tool.ParameterMarshaller.getParameterAsString;
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
@@ -24,6 +25,9 @@ public class MockPolicy {
     public static final String ALTERNATE_EXCHANGE = "alternate-exchange";
     public static final String DEAD_LETTER_EXCHANGE = "dead-letter-exchange";
     public static final String DEAD_LETTER_ROUTING_KEY = "dead-letter-routing-key";
+    public static final String MAX_Q_LENGTH = "max-length";
+    public static final String MAX_Q_LENGTH_BYTES = "max-length-bytes";
+    public static final String OVERFLOW = "overflow";
 
     private String name;
     private String pattern;
@@ -56,6 +60,19 @@ public class MockPolicy {
 
     public Optional<String> getDeadLetterRoutingKey() {
         return getParameterAsString.apply(DEAD_LETTER_ROUTING_KEY, definitions);
+    }
+
+    public Optional<Integer> getMaxLength() {
+        return getParameterAsPositiveInteger.apply(MAX_Q_LENGTH, definitions);
+    }
+
+    public Optional<Integer> getMaxLengthBytes() {
+        return getParameterAsPositiveInteger.apply(MAX_Q_LENGTH_BYTES, definitions);
+    }
+
+    public Optional<Overflow> getOverflow() {
+        return getParameterAsString.apply(OVERFLOW, definitions)
+            .flatMap(Overflow::parse);
     }
 
     public enum ApplyTo {

@@ -30,7 +30,6 @@ public class MockNode implements ReceiverRegistry, TransactionalOperations {
         "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
         22);
 
-
     public MockNode() {
         exchanges.put(MockDefaultExchange.NAME, defaultExchange);
     }

@@ -5,6 +5,7 @@ import static com.github.fridujo.rabbitmq.mock.configuration.QueueDeclarator.que
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
 import java.io.IOException;
@@ -448,7 +449,7 @@ class ExtensionTest {
     class QueueLengthLimit {
 
         @Test
-        void oldest_message_is_dropped_when_length_limit_is_reached() throws IOException {
+        void oldest_message_is_dropped_when_length_limit_is_reached_and_no_dlx() throws IOException {
             try (MockConnection conn = new MockConnectionFactory().newConnection()) {
                 try (MockChannel channel = conn.createChannel()) {
                     channel.exchangeDeclare("rejected-ex", BuiltinExchangeType.FANOUT);
@@ -480,7 +481,12 @@ class ExtensionTest {
         }
 
         @Test
-        void oldest_message_is_dropped_when_length_bytes_limit_is_reached() {
+        void oldest_message_is_sent_to_dlx_when_length_limit_is_reached_and_dlx_defined() {
+            fail();
+        }
+
+        @Test
+        void oldest_message_is_dropped_when_length_bytes_limit_is_reached_and_dlx() {
             try (MockConnection conn = new MockConnectionFactory().newConnection()) {
                 try (MockChannel channel = conn.createChannel()) {
                     String queueName = dynamicQueue().withMaxLengthBytes(10).declare(channel).getQueue();
@@ -500,12 +506,17 @@ class ExtensionTest {
         }
 
         @Test
+        void oldest_message_is_sent_to_dlx_when_length_bytes_limit_is_reached_and_dlx_defined() {
+            fail();
+        }
+
+        @Test
         void new_message_is_dropped_when_length_limit_is_reached_and_overflow_is_set_to_reject_publish() {
             try (MockConnection conn = new MockConnectionFactory().newConnection()) {
                 try (MockChannel channel = conn.createChannel()) {
                     String queueName = dynamicQueue()
                         .withMaxLength(2)
-                        .withOverflow(AmqArguments.Overflow.REJECT_PUBLISH)
+                        .withOverflow(Overflow.REJECT_PUBLISH)
                         .declare(channel)
                         .getQueue();
 
@@ -521,6 +532,16 @@ class ExtensionTest {
                     assertThat(new String(channel.basicGet("", true).getBody())).isEqualTo("1");
                 }
             }
+        }
+
+        @Test
+        void new_message_is_sent_to_dlx_when_length_limit_is_reached_and_overflow_is_set_to_reject_publish_dlx_and_dlx_defined() {
+            fail();
+        }
+
+        @Test
+        void new_message_is_dropped_when_length_limit_is_reached_and_overflow_is_set_to_reject_publish_dlx_and_dlx_defined() {
+            fail();
         }
 
         @Test

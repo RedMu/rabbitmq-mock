@@ -1,15 +1,14 @@
 package com.github.fridujo.rabbitmq.mock;
 
+import java.util.Map;
+import java.util.Optional;
+
 import static com.github.fridujo.rabbitmq.mock.tool.ParameterMarshaller.getParameterAsExchangePointer;
 import static com.github.fridujo.rabbitmq.mock.tool.ParameterMarshaller.getParameterAsPositiveInteger;
 import static com.github.fridujo.rabbitmq.mock.tool.ParameterMarshaller.getParameterAsPositiveLong;
 import static com.github.fridujo.rabbitmq.mock.tool.ParameterMarshaller.getParameterAsPositiveShort;
 import static com.github.fridujo.rabbitmq.mock.tool.ParameterMarshaller.getParameterAsString;
 import static java.util.Collections.emptyMap;
-
-import java.util.Arrays;
-import java.util.Map;
-import java.util.Optional;
 
 public class AmqArguments {
     public static final String DEAD_LETTER_EXCHANGE_KEY = "x-dead-letter-exchange";
@@ -50,10 +49,9 @@ public class AmqArguments {
         return getParameterAsPositiveInteger.apply(QUEUE_MAX_LENGTH_BYTES_KEY, arguments);
     }
 
-    public Overflow overflow() {
+    public Optional<Overflow> overflow() {
         return getParameterAsString.apply(OVERFLOW_KEY, arguments)
-            .flatMap(Overflow::parse)
-            .orElse(Overflow.DROP_HEAD);
+            .flatMap(Overflow::parse);
     }
 
     public Optional<Long> getMessageTtlOfQueue() {
@@ -62,24 +60,5 @@ public class AmqArguments {
 
     public Optional<Short> queueMaxPriority() {
         return getParameterAsPositiveShort.apply(MAX_PRIORITY_KEY, arguments);
-    }
-
-    public enum Overflow {
-        DROP_HEAD("drop-head"), REJECT_PUBLISH("reject-publish");
-
-        private final String stringValue;
-
-        Overflow(String stringValue) {
-            this.stringValue = stringValue;
-        }
-
-        private static Optional<Overflow> parse(String value) {
-            return Arrays.stream(values()).filter(v -> value.equals(v.stringValue)).findFirst();
-        }
-
-        @Override
-        public String toString() {
-            return stringValue;
-        }
     }
 }

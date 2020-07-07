@@ -3,11 +3,13 @@ package com.github.fridujo.rabbitmq.mock;
 import static com.github.fridujo.rabbitmq.mock.tool.Exceptions.runAndEatExceptions;
 import static com.github.fridujo.rabbitmq.mock.tool.Exceptions.runAndTransformExceptions;
 import static java.lang.String.format;
+import static java.util.Arrays.asList;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -136,9 +138,7 @@ public class MockQueue implements Receiver {
 
     public boolean publish(String exchangeName, String routingKey, AMQP.BasicProperties props, byte[] body) {
         boolean queueLengthLimitReached = queueLengthLimitReached() || queueLengthBytesLimitReached();
-        if (queueLengthLimitReached && arguments.overflow() == AmqArguments.Overflow.REJECT_PUBLISH) {
-            return true;
-        }
+
         Message message = new Message(
             messageSequence.incrementAndGet(),
             exchangeName,
@@ -147,15 +147,35 @@ public class MockQueue implements Receiver {
             body,
             computeExpiryTime(props)
         );
+
+        if (queueLengthLimitReached) {
+            Overflow overflow = arguments.overflow()
+                .map(Optional::of)
+                .orElse(mockPolicy.flatMap(MockPolicy::getOverflow))
+                .orElse(Overflow.DROP_HEAD);
+
+            switch (overflow) {
+                case REJECT_PUBLISH:
+                    return true;
+                case REJECT_PUBLISH_DLX:
+                    deadLetterWithReason(message, DeadLettering.ReasonType.MAX_LEN);
+                    return true;
+                case DROP_HEAD:
+                    Message droppedMessage = messages.remove();
+                    deadLetterWithReason(droppedMessage, DeadLettering.ReasonType.MAX_LEN);
+                    break;
+                default:
+                    throw new IllegalArgumentException("Overflow enum parsing should default to drop head");
+            }
+        }
+
         if (message.expiryTime != -1) {
             LOGGER.debug(localized("Message published expiring at " + Instant.ofEpochMilli(message.expiryTime)) + ": " + message);
         } else {
             LOGGER.debug(localized("Message published" + ": " + message));
         }
+
         messages.offer(message);
-        if (queueLengthLimitReached) {
-            deadLetterWithReason(messages.poll(), DeadLettering.ReasonType.MAX_LEN);
-        }
         return true;
     }
 
@@ -334,15 +354,27 @@ public class MockQueue implements Receiver {
         }
     }
 
+    private Optional<Integer> getMinimumValue(Optional<Integer> a, Optional<Integer> b) {
+        return asList(a, b)
+            .stream()
+            .filter(o -> o.isPresent())
+            .map(Optional::get)
+            .sorted(Comparator.naturalOrder())
+            .findFirst()
+            .map(Optional::of)
+            .orElse(Optional.empty());
+    }
+
     private boolean queueLengthLimitReached() {
-        return arguments.queueLengthLimit()
+        return getMinimumValue(arguments.queueLengthLimit(), mockPolicy.flatMap(MockPolicy::getMaxLength))
             .map(limit -> limit <= messages.size())
             .orElse(false);
     }
 
     private boolean queueLengthBytesLimitReached() {
         int messageBytesReady = messages.stream().mapToInt(m -> m.body.length).sum();
-        return arguments.queueLengthBytesLimit()
+
+        return getMinimumValue(arguments.queueLengthBytesLimit(), mockPolicy.flatMap(MockPolicy::getMaxLengthBytes))
             .map(limit -> limit <= messageBytesReady)
             .orElse(false);
     }

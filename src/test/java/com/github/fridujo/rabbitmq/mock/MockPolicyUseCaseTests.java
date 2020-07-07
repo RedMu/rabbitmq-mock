@@ -20,6 +20,7 @@ import static com.github.fridujo.rabbitmq.mock.MockPolicy.ApplyTo.EXCHANGE;
 import static com.github.fridujo.rabbitmq.mock.MockPolicy.ApplyTo.QUEUE;
 import static java.lang.Thread.sleep;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class MockPolicyUseCaseTests {
 
@@ -72,7 +73,10 @@ class MockPolicyUseCaseTests {
                 channel.queueDeclare("rejected", true, false, false, null);
                 channel.queueBind("rejected", "rejected-ex", "", null);
 
-                channel.queueDeclare("data", true, false, false, new HashMap<String, Object>() {{ put(AmqArguments.DEAD_LETTER_EXCHANGE_KEY, "rejected-ex"); }});
+                channel.queueDeclare("data", true, false, false, new HashMap<String, Object>()
+                {{
+                    put(AmqArguments.DEAD_LETTER_EXCHANGE_KEY, "rejected-ex");
+                }});
 
                 MockPolicy deadLetterExchangePolicy = MockPolicy.builder()
                     .name("dead letter exchange policy that does not override queue arguments")
@@ -105,7 +109,10 @@ class MockPolicyUseCaseTests {
                 channel.exchangeDeclare("rejected-ex", BuiltinExchangeType.DIRECT);
                 channel.queueDeclare("rejected", true, false, false, null);
                 channel.queueBind("rejected", "rejected-ex", "routed-by-policy", null);
-                channel.queueDeclare("data", true, false, false, new HashMap<String, Object>() {{ put(AmqArguments.DEAD_LETTER_EXCHANGE_KEY, "rejected-ex"); }});
+                channel.queueDeclare("data", true, false, false, new HashMap<String, Object>()
+                {{
+                    put(AmqArguments.DEAD_LETTER_EXCHANGE_KEY, "rejected-ex");
+                }});
 
                 MockPolicy deadLetterRoutingKeyPolicy = MockPolicy.builder()
                     .name("dead letter routing key policy")
@@ -228,6 +235,241 @@ class MockPolicyUseCaseTests {
                 waitForMessageDelivered(messages);
 
                 assertThat(messages.get(0)).isEqualTo("bytes".getBytes());
+            }
+        }
+    }
+
+    @Test
+    void canApplyQueueLengthAsPolicy() throws IOException, TimeoutException {
+        MockConnectionFactory connectionFactory = new MockConnectionFactory();
+        try (Connection conn = connectionFactory.newConnection()) {
+            try (Channel channel = conn.createChannel()) {
+                channel.exchangeDeclare("ex", BuiltinExchangeType.FANOUT, true, false, null);
+                channel.queueDeclare("q", true, false, false, null);
+                channel.queueBind("q", "ex", "", null);
+
+                MockPolicy alternativeExchangePolicy = MockPolicy.builder()
+                    .name("queue length policy")
+                    .pattern("q")
+                    .definition(MockPolicy.MAX_Q_LENGTH, 1)
+                    .build();
+
+                connectionFactory.setPolicy(alternativeExchangePolicy);
+
+                channel.basicPublish("ex", "", null, "dropped-message".getBytes());
+                channel.basicPublish("ex", "", null, "message".getBytes());
+
+                List<byte[]> messages = new ArrayList<>();
+
+                configureMessageCapture(channel, "q", messages);
+                waitForMessageDelivered(messages);
+
+                assertThat(messages.get(0)).isEqualTo("message".getBytes());
+                assertThat(channel.messageCount("q")).isEqualTo(0);
+                assertThat(messages.size()).isEqualTo(1);
+            }
+        }
+    }
+
+    @Test
+    void applyingQueueLengthAsPolicyAndQueueArgumentsTakesLowestValue() throws IOException, TimeoutException {
+        MockConnectionFactory connectionFactory = new MockConnectionFactory();
+        try (Connection conn = connectionFactory.newConnection()) {
+            try (Channel channel = conn.createChannel()) {
+                channel.exchangeDeclare("ex", BuiltinExchangeType.FANOUT, true, false, null);
+                channel.queueDeclare("q", true, false, false, new HashMap<String, Object>()
+                {{
+                    put(AmqArguments.QUEUE_MAX_LENGTH_KEY, 3);
+                }});
+                channel.queueDeclare("q2", true, false, false, new HashMap<String, Object>()
+                {{
+                    put(AmqArguments.QUEUE_MAX_LENGTH_KEY, 1);
+                }});
+                channel.queueBind("q", "ex", "", null);
+                channel.queueBind("q2", "ex", "", null);
+
+
+                MockPolicy alternativeExchangePolicy = MockPolicy.builder()
+                    .name("queue length policy")
+                    .pattern("q*")
+                    .definition(MockPolicy.MAX_Q_LENGTH, 2)
+                    .build();
+
+                connectionFactory.setPolicy(alternativeExchangePolicy);
+
+                channel.basicPublish("ex", "", null, "message1".getBytes());
+                channel.basicPublish("ex", "", null, "message2".getBytes());
+                channel.basicPublish("ex", "", null, "message3".getBytes());
+
+                List<byte[]> messages = new ArrayList<>();
+                List<byte[]> messages2 = new ArrayList<>();
+
+                configureMessageCapture(channel, "q", messages);
+                configureMessageCapture(channel, "q2", messages2);
+                waitForMessageDelivered(messages);
+
+                assertThat(messages.get(0)).isEqualTo("message2".getBytes());
+                assertThat(messages.get(1)).isEqualTo("message3".getBytes());
+                assertThat(channel.messageCount("q")).isEqualTo(0);
+                assertThat(messages.size()).isEqualTo(2);
+
+                waitForMessageDelivered(messages2);
+
+                assertThat(messages2.get(0)).isEqualTo("message3".getBytes());
+                assertThat(channel.messageCount("q2")).isEqualTo(0);
+                assertThat(messages2.size()).isEqualTo(1);
+            }
+        }
+    }
+
+    @Test
+    void canApplyQueueLengthBytesAsPolicy()  throws IOException, TimeoutException {
+        MockConnectionFactory connectionFactory = new MockConnectionFactory();
+        try (Connection conn = connectionFactory.newConnection()) {
+            try (Channel channel = conn.createChannel()) {
+                channel.exchangeDeclare("ex", BuiltinExchangeType.FANOUT, true, false, null);
+                channel.queueDeclare("q", true, false, false, null);
+                channel.queueBind("q", "ex", "", null);
+
+                MockPolicy alternativeExchangePolicy = MockPolicy.builder()
+                    .name("queue length policy")
+                    .pattern("q")
+                    .definition(MockPolicy.MAX_Q_LENGTH_BYTES, "dropped-message".getBytes().length)
+                    .build();
+
+                connectionFactory.setPolicy(alternativeExchangePolicy);
+
+                channel.basicPublish("ex", "", null, "dropped-message".getBytes());
+                channel.basicPublish("ex", "", null, "message".getBytes());
+
+                List<byte[]> messages = new ArrayList<>();
+
+                configureMessageCapture(channel, "q", messages);
+                waitForMessageDelivered(messages);
+
+                assertThat(messages.get(0)).isEqualTo("message".getBytes());
+                assertThat(channel.messageCount("q")).isEqualTo(0);
+                assertThat(messages.size()).isEqualTo(1);
+            }
+        }
+    }
+
+    @Test
+    void applyingQueueLengthBytesAsPolicyAndQueueArgumentsTakesLowestValue() throws IOException, TimeoutException {
+        MockConnectionFactory connectionFactory = new MockConnectionFactory();
+        try (Connection conn = connectionFactory.newConnection()) {
+            try (Channel channel = conn.createChannel()) {
+                channel.exchangeDeclare("ex", BuiltinExchangeType.FANOUT, true, false, null);
+                channel.queueDeclare("q", true, false, false, new HashMap<String, Object>()
+                {{
+                    put(AmqArguments.QUEUE_MAX_LENGTH_BYTES_KEY, "messageX".getBytes().length * 3);
+                }});
+                channel.queueDeclare("q2", true, false, false, new HashMap<String, Object>()
+                {{
+                    put(AmqArguments.QUEUE_MAX_LENGTH_BYTES_KEY, "messageX".getBytes().length);
+                }});
+                channel.queueBind("q", "ex", "", null);
+                channel.queueBind("q2", "ex", "", null);
+
+
+                MockPolicy alternativeExchangePolicy = MockPolicy.builder()
+                    .name("queue length policy")
+                    .pattern("q*")
+                    .definition(MockPolicy.MAX_Q_LENGTH_BYTES, "messageX".getBytes().length * 2)
+                    .build();
+
+                connectionFactory.setPolicy(alternativeExchangePolicy);
+
+                channel.basicPublish("ex", "", null, "message1".getBytes());
+                channel.basicPublish("ex", "", null, "message2".getBytes());
+                channel.basicPublish("ex", "", null, "message3".getBytes());
+
+                List<byte[]> messages = new ArrayList<>();
+                List<byte[]> messages2 = new ArrayList<>();
+
+                configureMessageCapture(channel, "q", messages);
+                configureMessageCapture(channel, "q2", messages2);
+                waitForMessageDelivered(messages);
+
+                assertThat(messages.get(0)).isEqualTo("message2".getBytes());
+                assertThat(messages.get(1)).isEqualTo("message3".getBytes());
+                assertThat(channel.messageCount("q")).isEqualTo(0);
+                assertThat(messages.size()).isEqualTo(2);
+
+                waitForMessageDelivered(messages2);
+
+                assertThat(messages2.get(0)).isEqualTo("message3".getBytes());
+                assertThat(channel.messageCount("q2")).isEqualTo(0);
+                assertThat(messages2.size()).isEqualTo(1);
+            }
+        }
+    }
+
+    @Test
+    void canApplyOverflowAsPolicy() throws IOException, TimeoutException {
+        MockConnectionFactory connectionFactory = new MockConnectionFactory();
+        try (Connection conn = connectionFactory.newConnection()) {
+            try (Channel channel = conn.createChannel()) {
+                channel.exchangeDeclare("ex", BuiltinExchangeType.FANOUT, true, false, null);
+                channel.queueDeclare("q", true, false, false, null);
+                channel.queueBind("q", "ex", "", null);
+
+                MockPolicy alternativeExchangePolicy = MockPolicy.builder()
+                    .name("queue length policy")
+                    .pattern("q")
+                    .definition(MockPolicy.MAX_Q_LENGTH, 1)
+                    .definition(MockPolicy.OVERFLOW, Overflow.REJECT_PUBLISH.toString())
+                    .build();
+
+                connectionFactory.setPolicy(alternativeExchangePolicy);
+
+                channel.basicPublish("ex", "", null, "message".getBytes());
+                channel.basicPublish("ex", "", null, "rejected-message".getBytes());
+
+                List<byte[]> messages = new ArrayList<>();
+
+                configureMessageCapture(channel, "q", messages);
+                waitForMessageDelivered(messages);
+
+                assertThat(messages.get(0)).isEqualTo("message".getBytes());
+                assertThat(channel.messageCount("q")).isEqualTo(0);
+                assertThat(messages.size()).isEqualTo(1);
+            }
+        }
+    }
+
+    @Test
+    void applyingOverflowAsPolicyDoesNotSupersedeQueueArguments() throws IOException, TimeoutException {
+        MockConnectionFactory connectionFactory = new MockConnectionFactory();
+        try (Connection conn = connectionFactory.newConnection()) {
+            try (Channel channel = conn.createChannel()) {
+                channel.exchangeDeclare("ex", BuiltinExchangeType.FANOUT, true, false, null);
+                channel.queueDeclare("q", true, false, false, new HashMap<String, Object>()
+                {{
+                    put(AmqArguments.OVERFLOW_KEY, Overflow.DROP_HEAD.toString());
+                }});
+                channel.queueBind("q", "ex", "", null);
+
+                MockPolicy alternativeExchangePolicy = MockPolicy.builder()
+                    .name("queue length policy")
+                    .pattern("q")
+                    .definition(MockPolicy.MAX_Q_LENGTH, 1)
+                    .definition(MockPolicy.OVERFLOW, Overflow.REJECT_PUBLISH.toString())
+                    .build();
+
+                connectionFactory.setPolicy(alternativeExchangePolicy);
+
+                channel.basicPublish("ex", "", null, "dropped-message".getBytes());
+                channel.basicPublish("ex", "", null, "message".getBytes());
+
+                List<byte[]> messages = new ArrayList<>();
+
+                configureMessageCapture(channel, "q", messages);
+                waitForMessageDelivered(messages);
+
+                assertThat(messages.get(0)).isEqualTo("message".getBytes());
+                assertThat(channel.messageCount("q")).isEqualTo(0);
+                assertThat(messages.size()).isEqualTo(1);
             }
         }
     }
